@@ -24,24 +24,20 @@ import java.util.Optional;
 public class ReverseProxy {
 
     final private int port;
+    final private boolean ssl;
     final private String remoteHost;
     final private int remotePort;
-    final private boolean ssl;
+    final private boolean remoteSsl;
 
-    public ReverseProxy(int port, String remoteHost, int remotePort, boolean ssl) {
+    public ReverseProxy(int port, boolean ssl, String remoteHost, int remotePort, boolean remSsl) {
         this.port = port;
+        this.ssl = ssl;
         this.remoteHost = remoteHost;
         this.remotePort = remotePort;
-        this.ssl = ssl;
+        this.remoteSsl = remSsl;
     }
 
-    public static void main(String[] args) throws Exception {
-        //TODO: write validation
-        new ReverseProxy(Integer.parseInt(args[0]), args[1], Integer.parseInt(args[2]), Boolean.parseBoolean(args[3])).start();
-    }
-
-    private void start() throws Exception {
-        final Optional<SslContext> sslCtx = getSslContext();
+    public void start() throws Exception {
         EventLoopGroup bossGroup = new NioEventLoopGroup();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
         try {
@@ -66,10 +62,10 @@ public class ReverseProxy {
                                     return IpFilterRuleType.REJECT;
                                 }
                             }));
-                            sslCtx.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc())));
+                            getSslContext().ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc())));
                             pipeline.addLast(new HttpRequestDecoder());
                             pipeline.addLast(new HttpObjectAggregator(2048 * 1024));
-                            pipeline.addLast(new ChildProxyHandler(remoteHost, remotePort, ssl));
+                            pipeline.addLast(new ChildProxyHandler(remoteHost, remotePort, remoteSsl));
                         }
                     })
                     .bind(port).sync().channel().closeFuture().sync();
@@ -77,7 +73,6 @@ public class ReverseProxy {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }
-
     }
 
     private Optional<SslContext> getSslContext() throws CertificateException, SSLException {

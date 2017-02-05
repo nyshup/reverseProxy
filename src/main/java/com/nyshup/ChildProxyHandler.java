@@ -8,11 +8,8 @@ import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpRequestEncoder;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.SslHandler;
-import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 
-import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLException;
 import java.util.Optional;
 
@@ -37,6 +34,7 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof HttpRequest) {
+            updateFields((HttpRequest) msg);
             Bootstrap bootstrap = new Bootstrap();
             final Channel inboundChannel = ctx.channel();
             bootstrap.group(inboundChannel.eventLoop())
@@ -63,6 +61,10 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
         } else {
             writeToOutboundOrClose(ctx, msg);
         }
+    }
+
+    private void updateFields(HttpRequest msg) {
+//        msg.headers().set("Host", remoteHost + ":" + remotePort);
     }
 
     private void writeToOutboundOrClose(ChannelHandlerContext ctx, Object msg) {
