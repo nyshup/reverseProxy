@@ -5,10 +5,10 @@ import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.http.HttpClientCodec;
-import io.netty.handler.codec.http.HttpRequestDecoder;
-import io.netty.handler.codec.http.HttpRequestEncoder;
-import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.handler.codec.http.*;
+import io.netty.handler.ipfilter.IpFilterRule;
+import io.netty.handler.ipfilter.IpFilterRuleType;
+import io.netty.handler.ipfilter.RuleBasedIpFilter;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
@@ -16,6 +16,7 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 
 import javax.net.ssl.SSLException;
+import java.net.InetSocketAddress;
 import java.security.cert.CertificateException;
 import java.util.Optional;
 
@@ -54,8 +55,20 @@ public class ReverseProxy {
                         @Override
                         protected void initChannel(SocketChannel ch) throws Exception {
                             ChannelPipeline pipeline = ch.pipeline();
+                            pipeline.addLast(new RuleBasedIpFilter(new IpFilterRule() {
+                                @Override
+                                public boolean matches(InetSocketAddress remoteAddress) {
+                                    return false;
+                                }
+
+                                @Override
+                                public IpFilterRuleType ruleType() {
+                                    return IpFilterRuleType.REJECT;
+                                }
+                            }));
                             sslCtx.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc())));
                             pipeline.addLast(new HttpRequestDecoder());
+                            pipeline.addLast(new HttpObjectAggregator(2048 * 1024));
                             pipeline.addLast(new ChildProxyHandler(remoteHost, remotePort, ssl));
                         }
                     })

@@ -8,8 +8,11 @@ import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpRequestEncoder;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 
+import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLException;
 import java.util.Optional;
 
@@ -31,19 +34,9 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
         ctx.channel().read();
     }
 
-    private Optional<SslContext> getSslContext() throws SSLException {
-        Optional<SslContext> sslCtx = Optional.empty();
-        if (this.ssl) {
-            sslCtx = Optional.of(SslContextBuilder.forClient()
-                    .trustManager(InsecureTrustManagerFactory.INSTANCE).build());
-        }
-        return sslCtx;
-    }
-
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof HttpRequest) {
-            Optional<SslContext> sslCtx = getSslContext();
             Bootstrap bootstrap = new Bootstrap();
             final Channel inboundChannel = ctx.channel();
             bootstrap.group(inboundChannel.eventLoop())
@@ -53,7 +46,7 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
                         @Override
                         protected void initChannel(NioSocketChannel ch) throws Exception {
                             ChannelPipeline pipeline = ch.pipeline();
-                            sslCtx.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc(), remoteHost, remotePort)));
+                            getSslContext().ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc(), remoteHost, remotePort)));
                             pipeline.addLast(new HttpRequestEncoder());
                             pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
                         }
@@ -102,4 +95,15 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
             ch.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
         }
     }
+
+    private Optional<SslContext> getSslContext() throws SSLException {
+        Optional<SslContext> sslCtx = Optional.empty();
+        if (this.ssl) {
+            sslCtx = Optional.of(SslContextBuilder.forClient()
+                    .trustManager(InsecureTrustManagerFactory.INSTANCE).build());
+        }
+        return sslCtx;
+    }
+
+
 }
