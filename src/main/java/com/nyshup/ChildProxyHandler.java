@@ -4,6 +4,8 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.codec.http.HttpRequest;
+import io.netty.handler.codec.http.HttpRequestEncoder;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
@@ -11,7 +13,6 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import javax.net.ssl.SSLException;
 import java.util.Optional;
 
-@ChannelHandler.Sharable
 public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
 
     final private String remoteHost;
@@ -27,30 +28,7 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        Optional<SslContext> sslCtx = getSslContext();
-        Bootstrap bootstrap = new Bootstrap();
-        final Channel inboundChannel = ctx.channel();
-        bootstrap.group(inboundChannel.eventLoop())
-                .channel(NioSocketChannel.class)
-                .option(ChannelOption.AUTO_READ, false)
-                .handler(new ChannelInitializer<NioSocketChannel>() {
-                    @Override
-                    protected void initChannel(NioSocketChannel ch) throws Exception {
-                        ChannelPipeline pipeline = ch.pipeline();
-                        sslCtx.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc(), remoteHost, remotePort)));
-                        pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
-                    }
-                });
-        ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
-        outboundChannel = channelFuture.channel();
-        channelFuture.addListener((ChannelFutureListener) future -> {
-            if (future.isSuccess()) {
-                inboundChannel.read();
-            } else {
-                inboundChannel.close();
-            }
-        });
-
+        ctx.channel().read();
     }
 
     private Optional<SslContext> getSslContext() throws SSLException {
@@ -64,12 +42,43 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (outboundChannel.isActive()) {
-            outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
+        if (msg instanceof HttpRequest) {
+            Optional<SslContext> sslCtx = getSslContext();
+            Bootstrap bootstrap = new Bootstrap();
+            final Channel inboundChannel = ctx.channel();
+            bootstrap.group(inboundChannel.eventLoop())
+                    .channel(NioSocketChannel.class)
+                    .option(ChannelOption.AUTO_READ, false)
+                    .handler(new ChannelInitializer<NioSocketChannel>() {
+                        @Override
+                        protected void initChannel(NioSocketChannel ch) throws Exception {
+                            ChannelPipeline pipeline = ch.pipeline();
+                            sslCtx.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc(), remoteHost, remotePort)));
+                            pipeline.addLast(new HttpRequestEncoder());
+                            pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
+                        }
+                    });
+            ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
+            outboundChannel = channelFuture.channel();
+            channelFuture.addListener((ChannelFutureListener) future -> {
                 if (future.isSuccess()) {
+                    writeToOutboundOrClose(ctx, msg);
+                } else {
+                    inboundChannel.close();
+                }
+            });
+        } else {
+            writeToOutboundOrClose(ctx, msg);
+        }
+    }
+
+    private void writeToOutboundOrClose(ChannelHandlerContext ctx, Object msg) {
+        if (outboundChannel.isActive()) {
+            outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) f -> {
+                if (f.isSuccess()) {
                     ctx.channel().read();
                 } else {
-                    future.channel().close();
+                    f.channel().close();
                 }
             });
         }
