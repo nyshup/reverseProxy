@@ -6,9 +6,13 @@ import io.netty.channel.*;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpRequestEncoder;
+import io.netty.handler.codec.http.HttpResponseDecoder;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.handler.timeout.IdleStateHandler;
 
 import javax.net.ssl.SSLException;
 import java.util.Optional;
@@ -44,9 +48,14 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
                         @Override
                         protected void initChannel(NioSocketChannel ch) throws Exception {
                             ChannelPipeline pipeline = ch.pipeline();
-                            getSslContext().ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc(), remoteHost, remotePort)));
-                            pipeline.addLast(new HttpRequestEncoder());
+                            getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
+                            pipeline.addLast("encoder", new HttpRequestEncoder());
+                            pipeline.addLast("decoder", new HttpResponseDecoder(8192,2 * 8192,2 * 8192));
+                            pipeline.addLast("idle",
+                                    new IdleStateHandler(0, 0, 100));
                             pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
+                            pipeline.addLast(new LoggingHandler(LogLevel.INFO));
+
                         }
                     });
             ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
@@ -64,7 +73,7 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
     }
 
     private void updateFields(HttpRequest msg) {
-//        msg.headers().set("Host", remoteHost + ":" + remotePort);
+        msg.headers().set("Host", remoteHost + ":" + remotePort);
     }
 
     private void writeToOutboundOrClose(ChannelHandlerContext ctx, Object msg) {
