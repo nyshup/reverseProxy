@@ -6,23 +6,23 @@ import io.netty.channel.*;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpRequestEncoder;
-import io.netty.handler.codec.http.HttpResponseDecoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
-import io.netty.handler.timeout.IdleStateHandler;
 
 import javax.net.ssl.SSLException;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
 
     final private String remoteHost;
     final private int remotePort;
     private final boolean ssl;
-    private Channel outboundChannel;
+    private CompletableFuture<Channel> completableFuture = new CompletableFuture<>();
+
 
     public ChildProxyHandler(String remoteHost, int remotePort, boolean ssl) {
         this.remoteHost = remoteHost;
@@ -50,49 +50,48 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
                             ChannelPipeline pipeline = ch.pipeline();
                             getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
                             pipeline.addLast("encoder", new HttpRequestEncoder());
-                            pipeline.addLast("decoder", new HttpResponseDecoder(8192,2 * 8192,2 * 8192));
-                            pipeline.addLast("idle",
-                                    new IdleStateHandler(0, 0, 100));
                             pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
                             pipeline.addLast(new LoggingHandler(LogLevel.INFO));
 
                         }
                     });
             ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
-            outboundChannel = channelFuture.channel();
+            CompletableFuture<Channel> cfuture = completableFuture;
             channelFuture.addListener((ChannelFutureListener) future -> {
                 if (future.isSuccess()) {
-                    writeToOutboundOrClose(ctx, msg);
+                    cfuture.complete(channelFuture.channel());
                 } else {
                     inboundChannel.close();
                 }
             });
-        } else {
-            writeToOutboundOrClose(ctx, msg);
         }
+        completableFuture = completableFuture.thenApply(outboundChannel -> {
+            if (outboundChannel.isActive()) {
+                outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) f -> {
+                    if (f.isSuccess()) {
+                        ctx.channel().read();
+                    } else {
+                        f.channel().close();
+                    }
+                });
+            }
+            return outboundChannel;
+        });
+
     }
 
     private void updateFields(HttpRequest msg) {
         msg.headers().set("Host", remoteHost + ":" + remotePort);
     }
 
-    private void writeToOutboundOrClose(ChannelHandlerContext ctx, Object msg) {
-        if (outboundChannel.isActive()) {
-            outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) f -> {
-                if (f.isSuccess()) {
-                    ctx.channel().read();
-                } else {
-                    f.channel().close();
-                }
-            });
-        }
-    }
-
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        if (outboundChannel != null) {
-            closeOnFlush(outboundChannel);
-        }
+        completableFuture.thenAccept(outboundChannel -> {
+            if (outboundChannel != null) {
+                closeOnFlush(outboundChannel);
+            }
+
+        });
     }
 
     @Override

@@ -64,10 +64,7 @@ public class ReverseProxy {
                                 }
                             }));
                             sslContext.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc())));
-                            pipeline.addLast("encoder", new HttpResponseEncoder());
-                            pipeline.addLast(new HttpRequestDecoder(8192, 8192*2, 8192*2));
-                            pipeline.addLast("inflater", new HttpContentDecompressor());
-                            pipeline.addLast("agregator", new HttpObjectAggregator(2048 * 1024));
+                            pipeline.addLast(new HttpRequestDecoder());
                             pipeline.addLast(new ChildProxyHandler(remoteHost, remotePort, remoteSsl));
                             pipeline.addLast(new LoggingHandler(LogLevel.INFO));
                         }
