@@ -51,8 +51,6 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
                             getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
                             pipeline.addLast("encoder", new HttpRequestEncoder());
                             pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
-                            pipeline.addLast(new LoggingHandler(LogLevel.INFO));
-
                         }
                     });
             ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);

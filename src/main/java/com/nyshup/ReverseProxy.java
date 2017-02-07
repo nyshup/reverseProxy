@@ -60,11 +60,10 @@ public class ReverseProxy {
                         protected void initChannel(SocketChannel ch) throws Exception {
                             ChannelPipeline pipeline = ch.pipeline();
                             sslContext.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc())));
-                            pipeline.addLast("encoder", new HttpResponseEncoder());
-                            pipeline.addLast(new HttpRequestDecoder(8192, 8192*2, 8192*2));
-                            pipeline.addLast("inflater", new HttpContentDecompressor());
-                            pipeline.addLast("agregator", new HttpObjectAggregator(2048 * 1024));
-                            pipeline.addLast(new ChildProxyHandler(remoteHost, remotePort, remoteSsl));
+                            ipFilter.ifPresent(ip -> pipeline.addLast("ipfilter", ip));
+                            pipeline.addLast("traffic", globalTrafficShapingHandler);
+                            pipeline.addLast("decoder", new HttpRequestDecoder());
+                            pipeline.addLast("proxyToServer", new ChildProxyHandler(remoteHost, remotePort, remoteSsl));
                         }
                     })
                     .bind(port).sync().channel().closeFuture().sync();
