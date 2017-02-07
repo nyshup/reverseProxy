@@ -14,11 +14,13 @@ import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 
 import javax.net.ssl.SSLException;
 import java.net.InetSocketAddress;
 import java.security.cert.CertificateException;
 import java.util.Optional;
+import java.util.Set;
 
 
 public class ReverseProxy {
@@ -28,19 +30,24 @@ public class ReverseProxy {
     final private String remoteHost;
     final private int remotePort;
     final private boolean remoteSsl;
+    private final Set<String> ipFilters;
+    private volatile GlobalTrafficShapingHandler globalTrafficShapingHandler;
 
-    public ReverseProxy(int port, boolean ssl, String remoteHost, int remotePort, boolean remSsl) {
+    public ReverseProxy(int port, boolean ssl, String remoteHost, int remotePort, boolean remSsl, Set<String> ipFilter) {
         this.port = port;
         this.ssl = ssl;
         this.remoteHost = remoteHost;
         this.remotePort = remotePort;
         this.remoteSsl = remSsl;
+        this.ipFilters = ipFilter;
     }
 
     public void start() throws Exception {
         EventLoopGroup bossGroup = new NioEventLoopGroup();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
         Optional<SslContext> sslContext = getSslContext();
+        Optional<RuleBasedIpFilter> ipFilter = getRuleBasedIpFilter();
+        globalTrafficShapingHandler = new GlobalTrafficShapingHandler(workerGroup, 1000, 1000);
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
@@ -52,24 +59,12 @@ public class ReverseProxy {
                         @Override
                         protected void initChannel(SocketChannel ch) throws Exception {
                             ChannelPipeline pipeline = ch.pipeline();
-                            pipeline.addLast(new RuleBasedIpFilter(new IpFilterRule() {
-                                @Override
-                                public boolean matches(InetSocketAddress remoteAddress) {
-                                    return false;
-                                }
-
-                                @Override
-                                public IpFilterRuleType ruleType() {
-                                    return IpFilterRuleType.REJECT;
-                                }
-                            }));
                             sslContext.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc())));
+                            ipFilter.ifPresent(r -> pipeline.addLast(r));
+                            pipeline.addLast("traffic", globalTrafficShapingHandler);
                             pipeline.addLast("encoder", new HttpResponseEncoder());
                             pipeline.addLast(new HttpRequestDecoder(8192, 8192*2, 8192*2));
-                            pipeline.addLast("inflater", new HttpContentDecompressor());
-                            pipeline.addLast("agregator", new HttpObjectAggregator(2048 * 1024));
                             pipeline.addLast(new ChildProxyHandler(remoteHost, remotePort, remoteSsl));
-                            pipeline.addLast(new LoggingHandler(LogLevel.INFO));
                         }
                     })
                     .bind(port).sync().channel().closeFuture().sync();
@@ -88,5 +83,20 @@ public class ReverseProxy {
         return sslCtx;
     }
 
+    private Optional<RuleBasedIpFilter> getRuleBasedIpFilter() {
+        if (!ipFilters.isEmpty()) {
+            return Optional.of(new RuleBasedIpFilter(new IpFilterRule() {
+                @Override
+                public boolean matches(InetSocketAddress remoteAddress) {
+                    return !ipFilters.contains(remoteAddress.getAddress().getHostAddress());
+                }
 
+                @Override
+                public IpFilterRuleType ruleType() {
+                    return IpFilterRuleType.REJECT;
+                }
+            }));
+        }
+        return Optional.empty();
+    }
 }

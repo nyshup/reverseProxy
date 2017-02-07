@@ -7,12 +7,9 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpRequestEncoder;
 import io.netty.handler.codec.http.HttpResponseDecoder;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
-import io.netty.handler.timeout.IdleStateHandler;
 
 import javax.net.ssl.SSLException;
 import java.util.Optional;
@@ -32,51 +29,37 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        ctx.channel().read();
+        Bootstrap bootstrap = new Bootstrap();
+        final Channel inboundChannel = ctx.channel();
+        bootstrap.group(inboundChannel.eventLoop())
+                .channel(NioSocketChannel.class)
+                .option(ChannelOption.AUTO_READ, false)
+                .handler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel ch) throws Exception {
+                        ChannelPipeline pipeline = ch.pipeline();
+                        getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
+                        pipeline.addLast("encoder", new HttpRequestEncoder());
+                        pipeline.addLast("decoder", new HttpResponseDecoder(8192,2 * 8192,2 * 8192));
+                        pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
+                    }
+                });
+        ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
+        outboundChannel = channelFuture.channel();
+        channelFuture.addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                inboundChannel.read();
+            } else {
+                inboundChannel.close();
+            }
+        });
     }
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof HttpRequest) {
-            updateFields((HttpRequest) msg);
-            Bootstrap bootstrap = new Bootstrap();
-            final Channel inboundChannel = ctx.channel();
-            bootstrap.group(inboundChannel.eventLoop())
-                    .channel(NioSocketChannel.class)
-                    .option(ChannelOption.AUTO_READ, false)
-                    .handler(new ChannelInitializer<NioSocketChannel>() {
-                        @Override
-                        protected void initChannel(NioSocketChannel ch) throws Exception {
-                            ChannelPipeline pipeline = ch.pipeline();
-                            getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
-                            pipeline.addLast("encoder", new HttpRequestEncoder());
-                            pipeline.addLast("decoder", new HttpResponseDecoder(8192,2 * 8192,2 * 8192));
-                            pipeline.addLast("idle",
-                                    new IdleStateHandler(0, 0, 100));
-                            pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
-                            pipeline.addLast(new LoggingHandler(LogLevel.INFO));
-
-                        }
-                    });
-            ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
-            outboundChannel = channelFuture.channel();
-            channelFuture.addListener((ChannelFutureListener) future -> {
-                if (future.isSuccess()) {
-                    writeToOutboundOrClose(ctx, msg);
-                } else {
-                    inboundChannel.close();
-                }
-            });
-        } else {
-            writeToOutboundOrClose(ctx, msg);
+            updateFields((HttpRequest)msg);
         }
-    }
-
-    private void updateFields(HttpRequest msg) {
-        msg.headers().set("Host", remoteHost + ":" + remotePort);
-    }
-
-    private void writeToOutboundOrClose(ChannelHandlerContext ctx, Object msg) {
         if (outboundChannel.isActive()) {
             outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) f -> {
                 if (f.isSuccess()) {
@@ -86,6 +69,15 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
                 }
             });
         }
+    }
+
+    @Override
+    public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+        super.channelReadComplete(ctx);
+    }
+
+    private void updateFields(HttpRequest msg) {
+        msg.headers().set("Host", remoteHost + ":" + remotePort);
     }
 
     @Override
@@ -115,6 +107,5 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
         }
         return sslCtx;
     }
-
 
 }

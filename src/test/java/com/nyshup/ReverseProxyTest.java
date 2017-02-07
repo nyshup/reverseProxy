@@ -48,16 +48,11 @@ public class ReverseProxyTest {
     private CloseableHttpClient client;
     private String url = "https://127.0.0.1:8080/post";
 
-
     @Before
     public void setUp() throws Exception {
         client = createHttpClientAcceptsUntrustedCerts();
     }
 
-    @After
-    public void tearDown() throws IOException {
-        client.close();
-    }
     @Test
     public void testClientPost_Plain() throws Exception {
 
@@ -103,15 +98,14 @@ public class ReverseProxyTest {
         request.setEntity(multipart);
 
         HttpResponse httpResponse = client.execute(request);
-        in.close();
         String json = EntityUtils.toString(httpResponse.getEntity());
         System.out.println(json);
         DocumentContext jsonDoc = JsonPath.parse(json);
         assertEquals(read(this.getClass().getClassLoader()
                 .getResourceAsStream("testFile.txt")), jsonDoc.read("$.files.file"));
-
-
     }
+
+
 
     private CloseableHttpClient createHttpClientAcceptsUntrustedCerts() throws KeyStoreException, NoSuchAlgorithmException, KeyManagementException {
         HttpClientBuilder b = HttpClientBuilder.create();
