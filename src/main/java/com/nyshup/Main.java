@@ -29,7 +29,7 @@ public class Main {
     @Parameter(names = {"--ipFilter"}, description = "List of allowed ip addresses splited with ','")
     private String ipFilters = "";
 
-    @Parameter(names = {"--help"}, help = true)
+    @Parameter(names = {"--help", "-h"}, help = true)
     private boolean help;
 
 

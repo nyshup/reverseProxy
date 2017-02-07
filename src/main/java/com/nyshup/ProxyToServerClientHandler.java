@@ -6,8 +6,6 @@ import io.netty.channel.*;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpRequestEncoder;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
@@ -16,7 +14,7 @@ import javax.net.ssl.SSLException;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
-public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
+public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
     final private String remoteHost;
     final private int remotePort;
@@ -24,7 +22,7 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
     private CompletableFuture<Channel> completableFuture = new CompletableFuture<>();
 
 
-    public ChildProxyHandler(String remoteHost, int remotePort, boolean ssl) {
+    public ProxyToServerClientHandler(String remoteHost, int remotePort, boolean ssl) {
         this.remoteHost = remoteHost;
         this.remotePort = remotePort;
         this.ssl = ssl;
@@ -50,7 +48,7 @@ public class ChildProxyHandler extends ChannelInboundHandlerAdapter {
                             ChannelPipeline pipeline = ch.pipeline();
                             getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
                             pipeline.addLast("encoder", new HttpRequestEncoder());
-                            pipeline.addLast(new ChildServerProxyHandler(inboundChannel));
+                            pipeline.addLast(new ProxyToServerBackendHandler(inboundChannel));
                         }
                     });
             ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);

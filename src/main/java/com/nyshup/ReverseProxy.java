@@ -63,7 +63,7 @@ public class ReverseProxy {
                             ipFilter.ifPresent(ip -> pipeline.addLast("ipfilter", ip));
                             pipeline.addLast("traffic", globalTrafficShapingHandler);
                             pipeline.addLast("decoder", new HttpRequestDecoder());
-                            pipeline.addLast("proxyToServer", new ChildProxyHandler(remoteHost, remotePort, remoteSsl));
+                            pipeline.addLast("proxyToServer", new ProxyToServerClientHandler(remoteHost, remotePort, remoteSsl));
                         }
                     })
                     .bind(port).sync().channel().closeFuture().sync();

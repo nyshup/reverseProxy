@@ -3,10 +3,10 @@ package com.nyshup;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 
-public class ChildServerProxyHandler extends ChannelInboundHandlerAdapter {
+public class ProxyToServerBackendHandler extends ChannelInboundHandlerAdapter {
     final private Channel inbound;
 
-    public ChildServerProxyHandler(Channel inbound) {
+    public ProxyToServerBackendHandler(Channel inbound) {
         this.inbound = inbound;
     }
 
