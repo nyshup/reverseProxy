@@ -24,14 +24,14 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
     final private String remoteHost;
     final private int remotePort;
-    private final boolean ssl;
+    private final boolean remoteSsl;
     private CompletableFuture<Channel> completableFuture = new CompletableFuture<>();
 
 
     public ProxyToServerClientHandler(String remoteHost, int remotePort, boolean ssl) {
         this.remoteHost = remoteHost;
         this.remotePort = remotePort;
-        this.ssl = ssl;
+        this.remoteSsl = ssl;
     }
 
     @Override
@@ -71,9 +71,14 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
         });
     }
 
-    private void initConnectionToServer(ChannelHandlerContext ctx, HttpRequest msg) {
-        HttpRequest request = msg;
-        updateFields(request);
+    private void initConnectionToServer(ChannelHandlerContext ctx, HttpRequest request) {
+
+        final int rPort = getRemotePort(request);
+        final String rHost = getRemoteHost(request);
+        final boolean rSsl = getRemoteSsl(request);
+
+        updateHeaderFields(request, rHost, rPort);
+
         Bootstrap bootstrap = new Bootstrap();
         final Channel inboundChannel = ctx.channel();
         bootstrap.group(inboundChannel.eventLoop())
@@ -83,12 +88,12 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
                     @Override
                     protected void initChannel(NioSocketChannel ch) throws Exception {
                         ChannelPipeline pipeline = ch.pipeline();
-                        getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
+                        getSslContext(rSsl).ifPresent(s -> pipeline.addLast("remoteSsl", s.newHandler(ch.alloc(), rHost, rPort)));
                         pipeline.addLast("encoder", new HttpRequestEncoder());
                         pipeline.addLast(new ProxyToServerBackendHandler(inboundChannel));
                     }
                 });
-        ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
+        ChannelFuture channelFuture = bootstrap.connect(rHost, rPort);
         CompletableFuture<Channel> cfuture = completableFuture;
         channelFuture.addListener((ChannelFutureListener) future -> {
             if (future.isSuccess()) {
@@ -97,6 +102,30 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
                 inboundChannel.close();
             }
         });
+    }
+
+    private boolean getRemoteSsl(HttpRequest request) {
+        String ssl = request.headers().get("X-other-remote-remoteSsl");
+        if (ssl == null) {
+            return this.remoteSsl;
+        }
+        return ssl.equalsIgnoreCase("true");
+    }
+
+    private String getRemoteHost(HttpRequest request) {
+        String host = request.headers().get("X-other-remote-host");
+        if (host == null) {
+            return this.remoteHost;
+        }
+        return host;
+    }
+
+    private int getRemotePort(HttpRequest request) {
+        Integer port = request.headers().getInt("127.0.0.1");
+        if (port == null) {
+            return this.remotePort;
+        }
+        return port;
     }
 
     private boolean isTrafficRequest(Object msg) {
@@ -118,8 +147,8 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
             ctx.write(response).addListener(ChannelFutureListener.CLOSE);
     }
 
-    private void updateFields(HttpRequest msg) {
-        msg.headers().set("Host", remoteHost + ":" + remotePort);
+    private void updateHeaderFields(HttpRequest msg, String host, int port) {
+        msg.headers().set("Host", host + ":" + port);
     }
 
     @Override
@@ -144,9 +173,9 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
         }
     }
 
-    private Optional<SslContext> getSslContext() throws SSLException {
+    private Optional<SslContext> getSslContext(boolean ssl) throws SSLException {
         Optional<SslContext> sslCtx = Optional.empty();
-        if (this.ssl) {
+        if (ssl) {
             sslCtx = Optional.of(SslContextBuilder.forClient()
                     .trustManager(InsecureTrustManagerFactory.INSTANCE).build());
         }
