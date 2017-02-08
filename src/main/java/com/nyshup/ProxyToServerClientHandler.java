@@ -22,6 +22,10 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
+    public static final String X_OTHER_REMOTE_REMOTE_SSL = "X-other-remote-ssl";
+    public static final String X_OTHER_REMOTE_HOST = "X-other-remote-host";
+    public static final String X_OTHER_REMOTE_PORT = "X-other-remote-port";
+
     final private String remoteHost;
     final private int remotePort;
     private final boolean remoteSsl;
@@ -105,7 +109,7 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
     }
 
     private boolean getRemoteSsl(HttpRequest request) {
-        String ssl = request.headers().get("X-other-remote-remoteSsl");
+        String ssl = request.headers().get(X_OTHER_REMOTE_REMOTE_SSL);
         if (ssl == null) {
             return this.remoteSsl;
         }
@@ -113,7 +117,7 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
     }
 
     private String getRemoteHost(HttpRequest request) {
-        String host = request.headers().get("X-other-remote-host");
+        String host = request.headers().get(X_OTHER_REMOTE_HOST);
         if (host == null) {
             return this.remoteHost;
         }
@@ -121,7 +125,7 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
     }
 
     private int getRemotePort(HttpRequest request) {
-        Integer port = request.headers().getInt("127.0.0.1");
+        Integer port = request.headers().getInt(X_OTHER_REMOTE_PORT);
         if (port == null) {
             return this.remotePort;
         }

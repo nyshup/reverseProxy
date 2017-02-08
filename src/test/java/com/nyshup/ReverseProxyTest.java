@@ -56,7 +56,7 @@ public class ReverseProxyTest {
     }
 
     @Test
-    public void testClientPost_Plain() throws Exception {
+    public void testPost_JSON() throws Exception {
 
         HttpPost request = new HttpPost(url);
         request.addHeader(new BasicHeader("Content-Type", "application/json"));
@@ -98,7 +98,7 @@ public class ReverseProxyTest {
     }
 
     @Test
-    public void testClientPost_FormData() throws Exception {
+    public void testPost_FormData() throws Exception {
 
         List<NameValuePair> nvps = new ArrayList<>();
         nvps.add(new BasicNameValuePair("param1", "value1"));
@@ -123,7 +123,7 @@ public class ReverseProxyTest {
     }
 
     @Test
-    public void testClientPost_MultipartData() throws Exception {
+    public void testPost_MultipartData() throws Exception {
 
         HttpPost request = new HttpPost(url);
         request.setEntity(MultipartEntityBuilder.create()
