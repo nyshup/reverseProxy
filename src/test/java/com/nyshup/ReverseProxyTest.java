@@ -2,7 +2,6 @@ package com.nyshup;
 
 import com.jayway.jsonpath.DocumentContext;
 import com.jayway.jsonpath.JsonPath;
-import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpPost;
@@ -35,22 +34,21 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.apache.http.entity.ContentType.APPLICATION_FORM_URLENCODED;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.startsWith;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 public class ReverseProxyTest {
 
-    public static final String TEST_STRING = "TEST_STRING";
+    public static final String TEST_JSON = "{'foo': 'bar'}";
     private CloseableHttpClient client;
     private String url = "https://127.0.0.1:8080/post";
     private String ethalonUrl = "https://httpbin.org:443/post";
-
 
     @Before
     public void setUp() throws Exception {
@@ -62,10 +60,10 @@ public class ReverseProxyTest {
 
         HttpPost request = new HttpPost(url);
         request.addHeader(new BasicHeader("Content-Type", "application/json"));
-        request.setEntity(new StringEntity(TEST_STRING));
+        request.setEntity(new StringEntity(TEST_JSON));
 
         HttpPost ethalonRequest = new HttpPost(ethalonUrl);
-        ethalonRequest.setEntity(new StringEntity(TEST_STRING));
+        ethalonRequest.setEntity(new StringEntity(TEST_JSON));
 
         String json = EntityUtils.toString(client.execute(request).getEntity());
 
@@ -75,6 +73,24 @@ public class ReverseProxyTest {
         DocumentContext ethalonDoc = JsonPath.parse(jsonEthalon);
         checkEqual("Data should be equal", ethalonDoc, jsonDoc, "$.data");
         assertThat(jsonDoc.read("$.headers['Content-Type']", String.class), equalTo("application/json"));
+    }
+
+    @Test
+    public void testPostedHeaders() throws IOException {
+        Map<String, String> headers = new HashMap<String, String>(){{
+            this.put("Accept", "application/json");
+            this.put("Accept-Charset", "utf-8");
+            this.put("Accept-Encoding", "gzip, deflate");
+            this.put("Cache-Control", "no-cache");
+            this.put("Pragma", "no-cache");
+            this.put("Referer", "http://en.wikipedia.org/wiki/Main_Page");
+            this.put("Content-Type", "application/json");
+        }};
+
+        HttpPost request = new HttpPost(url);
+        headers.forEach((k, v) -> request.addHeader(new BasicHeader(k, v)));
+        DocumentContext doc = call(request);
+        headers.forEach((k, v) -> assertThat(doc.read("$.headers." + k, String.class), equalTo(v)));
     }
 
     private void checkEqual(String message, DocumentContext ethalon, DocumentContext doc, String jsonPath) {
@@ -92,12 +108,11 @@ public class ReverseProxyTest {
         HttpPost request = new HttpPost(url);
         request.setEntity(entity);
 
-
         HttpPost requsetEthalon = new HttpPost(ethalonUrl);
         requsetEthalon.setEntity(entity);
 
-        DocumentContext jsonDoc = JsonPath.parse(EntityUtils.toString(client.execute(request).getEntity()));
-        DocumentContext ethalon = JsonPath.parse(EntityUtils.toString(client.execute(requsetEthalon).getEntity()));
+        DocumentContext jsonDoc = call(request);
+        DocumentContext ethalon = call(requsetEthalon);
 
         assertEquals("value1", jsonDoc.read("$.form['param1']"));
         assertEquals("value2", jsonDoc.read("$.form['param2']"));
@@ -114,30 +129,23 @@ public class ReverseProxyTest {
         request.setEntity(MultipartEntityBuilder.create()
             .addBinaryBody("file", getFile("testFile.txt"), ContentType.APPLICATION_OCTET_STREAM, "")
             .build());
-        HttpResponse httpResponse = client.execute(request);
 
         HttpPost ethalonRequest = new HttpPost(ethalonUrl);
         ethalonRequest.setEntity(MultipartEntityBuilder.create()
                 .addBinaryBody("file", getFile("testFile.txt"), ContentType.APPLICATION_OCTET_STREAM, "")
                 .build());
-        HttpResponse httpResponseEth = client.execute(ethalonRequest);
+        System.out.println();
 
-        DocumentContext doc = JsonPath.parse(EntityUtils.toString(httpResponse.getEntity()));
-        DocumentContext ethalonDoc = JsonPath.parse(EntityUtils.toString(httpResponseEth.getEntity()));
+        DocumentContext doc = call(request);
+        DocumentContext ethalonDoc = call(ethalonRequest);
 
         checkEqual("Content should be equal", ethalonDoc, doc, "$.files.file");
         assertTrue("Content should not be empty", doc.read("$.files.file", String.class).length() > 0);
         assertThat(doc.read("$.headers['Content-Type']", String.class), startsWith("multipart/form-data"));
     }
 
-    @Test
-    public void testPostedHeaders() {
-        //TODO
-    }
-
-    @Test
-    public void testPostedBigFile() {
-        //TODO
+    private DocumentContext call(HttpPost request) throws IOException {
+        return JsonPath.parse(EntityUtils.toString(client.execute(request).getEntity()));
     }
 
     private InputStream getFile(String file) {

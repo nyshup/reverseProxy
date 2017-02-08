@@ -22,7 +22,6 @@ import java.security.cert.CertificateException;
 import java.util.Optional;
 import java.util.Set;
 
-
 public class ReverseProxy {
 
     final private int port;
@@ -47,7 +46,7 @@ public class ReverseProxy {
         EventLoopGroup workerGroup = new NioEventLoopGroup();
         Optional<SslContext> sslContext = getSslContext();
         Optional<RuleBasedIpFilter> ipFilter = getRuleBasedIpFilter();
-        globalTrafficShapingHandler = new GlobalTrafficShapingHandler(workerGroup, 1000, 1000);
+        globalTrafficShapingHandler = new GlobalTrafficShapingHandler(workerGroup, 15000);
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)

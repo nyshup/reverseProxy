@@ -4,15 +4,21 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http.HttpRequestEncoder;
+import io.netty.handler.codec.http.*;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import io.netty.handler.traffic.TrafficCounter;
 
 import javax.net.ssl.SSLException;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+
+import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_LENGTH;
+import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
+import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
@@ -34,33 +40,23 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
+    public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+        ctx.flush();
+    }
+
+    @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (msg instanceof HttpRequest) {
-            updateFields((HttpRequest) msg);
-            Bootstrap bootstrap = new Bootstrap();
-            final Channel inboundChannel = ctx.channel();
-            bootstrap.group(inboundChannel.eventLoop())
-                    .channel(NioSocketChannel.class)
-                    .option(ChannelOption.AUTO_READ, false)
-                    .handler(new ChannelInitializer<NioSocketChannel>() {
-                        @Override
-                        protected void initChannel(NioSocketChannel ch) throws Exception {
-                            ChannelPipeline pipeline = ch.pipeline();
-                            getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
-                            pipeline.addLast("encoder", new HttpRequestEncoder());
-                            pipeline.addLast(new ProxyToServerBackendHandler(inboundChannel));
-                        }
-                    });
-            ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
-            CompletableFuture<Channel> cfuture = completableFuture;
-            channelFuture.addListener((ChannelFutureListener) future -> {
-                if (future.isSuccess()) {
-                    cfuture.complete(channelFuture.channel());
-                } else {
-                    inboundChannel.close();
-                }
-            });
+        if (isTrafficRequest(msg)) {
+            processTrafficResponse(ctx);
+            return;
         }
+        if (msg instanceof HttpRequest) {
+            initConnectionToServer(ctx, (HttpRequest) msg);
+        }
+        processChannelRead(ctx, msg);
+    }
+
+    private void processChannelRead(ChannelHandlerContext ctx, Object msg) {
         completableFuture = completableFuture.thenApply(outboundChannel -> {
             if (outboundChannel.isActive()) {
                 outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) f -> {
@@ -73,7 +69,53 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
             }
             return outboundChannel;
         });
+    }
 
+    private void initConnectionToServer(ChannelHandlerContext ctx, HttpRequest msg) {
+        HttpRequest request = msg;
+        updateFields(request);
+        Bootstrap bootstrap = new Bootstrap();
+        final Channel inboundChannel = ctx.channel();
+        bootstrap.group(inboundChannel.eventLoop())
+                .channel(NioSocketChannel.class)
+                .option(ChannelOption.AUTO_READ, false)
+                .handler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel ch) throws Exception {
+                        ChannelPipeline pipeline = ch.pipeline();
+                        getSslContext().ifPresent(s -> pipeline.addLast("ssl", s.newHandler(ch.alloc(), remoteHost, remotePort)));
+                        pipeline.addLast("encoder", new HttpRequestEncoder());
+                        pipeline.addLast(new ProxyToServerBackendHandler(inboundChannel));
+                    }
+                });
+        ChannelFuture channelFuture = bootstrap.connect(remoteHost, remotePort);
+        CompletableFuture<Channel> cfuture = completableFuture;
+        channelFuture.addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                cfuture.complete(channelFuture.channel());
+            } else {
+                inboundChannel.close();
+            }
+        });
+    }
+
+    private boolean isTrafficRequest(Object msg) {
+        if (msg instanceof HttpRequest &&
+            ((HttpRequest) msg).uri().endsWith("traffic")) return true;
+        return false;
+    }
+
+    private void processTrafficResponse(ChannelHandlerContext ctx) {
+            ctx.pipeline().addBefore("decoder", "encoder", new HttpResponseEncoder());
+            TrafficCounter counter = ((GlobalTrafficShapingHandler) ctx.pipeline().get("traffic")).trafficCounter();
+            StringBuilder builder = new StringBuilder("Statistics : ");
+            builder.append("Read bytes[").append(counter.cumulativeReadBytes() >> 10).append("Kb]  ")
+                    .append("Write bytes:").append("[").append(counter.cumulativeWrittenBytes() >> 10).append("Kb]");
+
+            FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, OK, Unpooled.wrappedBuffer(builder.toString().getBytes()));
+            response.headers().set(CONTENT_TYPE, "text/plain");
+            response.headers().setInt(CONTENT_LENGTH, response.content().readableBytes());
+            ctx.write(response).addListener(ChannelFutureListener.CLOSE);
     }
 
     private void updateFields(HttpRequest msg) {

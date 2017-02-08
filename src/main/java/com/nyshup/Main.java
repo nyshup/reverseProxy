@@ -6,9 +6,7 @@ import com.beust.jcommander.Parameter;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * Created by ruslan on 2/6/17.
- */
+
 public class Main {
 
     @Parameter(names={"--port"}, description = "Port which use proxy server to run", required = true)
@@ -29,7 +27,7 @@ public class Main {
     @Parameter(names = {"--ipFilter"}, description = "List of allowed ip addresses splited with ','")
     private String ipFilters = "";
 
-    @Parameter(names = {"--help", "-h"}, help = true)
+    @Parameter(names = {"--help", "-h"}, description = "Test", help = true)
     private boolean help;
 
 
