@@ -1,5 +1,7 @@
 package com.nyshup;
 
+import com.nyshup.model.Host;
+import com.nyshup.rules.RemoteHostHeadersRule;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -19,32 +21,33 @@ import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import javax.net.ssl.SSLException;
 import java.net.InetSocketAddress;
 import java.security.cert.CertificateException;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public class ReverseProxy {
 
-    final private int port;
-    final private boolean ssl;
-    final private String remoteHost;
-    final private int remotePort;
-    final private boolean remoteSsl;
+    public enum Status {
+        RUNNING, TERMINATED
+    }
+
+    final private Map<Integer, Boolean> portsToSsl = new HashMap<>();
+    final Host remoteHost;
     private final Set<String> ipFilters;
     private volatile GlobalTrafficShapingHandler globalTrafficShapingHandler;
+    private volatile EventLoopGroup bossGroup;
+    private volatile EventLoopGroup workerGroup;
+    private volatile Status status;
 
-    public ReverseProxy(int port, boolean ssl, String remoteHost, int remotePort, boolean remSsl, Set<String> ipFilter) {
-        this.port = port;
-        this.ssl = ssl;
+    public ReverseProxy(Map<Integer, Boolean> ports, Host remoteHost, Set<String> ipFilter) {
+        this.portsToSsl.putAll(ports);
         this.remoteHost = remoteHost;
-        this.remotePort = remotePort;
-        this.remoteSsl = remSsl;
         this.ipFilters = ipFilter;
     }
 
     public void start() throws Exception {
-        EventLoopGroup bossGroup = new NioEventLoopGroup();
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
-        Optional<SslContext> sslContext = getSslContext();
+        bossGroup = new NioEventLoopGroup();
+        workerGroup = new NioEventLoopGroup();
+        SslContext sslContext = getSslContext();
         Optional<RuleBasedIpFilter> ipFilter = getRuleBasedIpFilter();
         globalTrafficShapingHandler = new GlobalTrafficShapingHandler(workerGroup, 15000);
         try {
@@ -52,33 +55,46 @@ public class ReverseProxy {
             bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
                     .handler(new LoggingHandler(LogLevel.INFO))
-                    .childOption(ChannelOption.AUTO_READ, false)
-                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                    .childOption(ChannelOption.AUTO_READ, false);
+            List<Channel> channels = new ArrayList<>();
+            for (Integer port: portsToSsl.keySet()) {
+                Channel ch = bootstrap.childHandler(new ChannelInitializer<SocketChannel>() {
 
-                        @Override
-                        protected void initChannel(SocketChannel ch) throws Exception {
-                            ChannelPipeline pipeline = ch.pipeline();
-                            sslContext.ifPresent(s -> pipeline.addLast(s.newHandler(ch.alloc())));
-                            ipFilter.ifPresent(ip -> pipeline.addLast("ipfilter", ip));
-                            pipeline.addLast("traffic", globalTrafficShapingHandler);
-                            pipeline.addLast("decoder", new HttpRequestDecoder());
-                            pipeline.addLast("proxyToServer", new ProxyToServerClientHandler(remoteHost, remotePort, remoteSsl));
-                        }
-                    })
-                    .bind(port).sync().channel().closeFuture().sync();
+                    @Override
+                    protected void initChannel(SocketChannel ch) throws Exception {
+                        ChannelPipeline pipeline = ch.pipeline();
+                        if (portsToSsl.get(port)) pipeline.addLast(sslContext.newHandler(ch.alloc()));
+                        ipFilter.ifPresent(ip -> pipeline.addLast("ipfilter", ip));
+                        pipeline.addLast("traffic", globalTrafficShapingHandler);
+                        pipeline.addLast("decoder", new HttpServerCodec());
+                        pipeline.addLast("proxyToServer", new ProxyToServerClientHandler(new RemoteHostHeadersRule(remoteHost)));
+                    }
+
+                }).bind(port).sync().channel();
+                channels.add(ch);
+            }
+            this.status = Status.RUNNING;
+            for (Channel channel: channels) {
+                channel.closeFuture().sync();
+            }
         } finally {
-            bossGroup.shutdownGracefully();
-            workerGroup.shutdownGracefully();
+            shutdownGracefully();
         }
     }
 
-    private Optional<SslContext> getSslContext() throws CertificateException, SSLException {
-        Optional<SslContext> sslCtx = Optional.empty();
-        if (ssl) {
-            SelfSignedCertificate ssc = new SelfSignedCertificate();
-            sslCtx = Optional.of(SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey()).build());
-        }
-        return sslCtx;
+    public void shutdownGracefully() throws InterruptedException {
+        bossGroup.shutdownGracefully(0, 10, TimeUnit.SECONDS).sync();
+        workerGroup.shutdownGracefully(0, 10, TimeUnit.SECONDS).sync();
+        this.status = Status.TERMINATED;
+    }
+
+    public Status getStatus() {
+        return status;
+    }
+
+    private SslContext getSslContext() throws CertificateException, SSLException {
+        SelfSignedCertificate ssc = new SelfSignedCertificate();
+        return SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey()).build();
     }
 
     private Optional<RuleBasedIpFilter> getRuleBasedIpFilter() {

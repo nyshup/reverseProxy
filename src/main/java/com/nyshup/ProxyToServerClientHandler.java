@@ -1,5 +1,7 @@
 package com.nyshup;
 
+import com.nyshup.model.Host;
+import com.nyshup.rules.RemoteHostRule;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
@@ -22,20 +24,12 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
-    public static final String X_OTHER_REMOTE_REMOTE_SSL = "X-other-remote-ssl";
-    public static final String X_OTHER_REMOTE_HOST = "X-other-remote-host";
-    public static final String X_OTHER_REMOTE_PORT = "X-other-remote-port";
-
-    final private String remoteHost;
-    final private int remotePort;
-    private final boolean remoteSsl;
+    final private RemoteHostRule remoteHostRule;
     private CompletableFuture<Channel> completableFuture = new CompletableFuture<>();
 
 
-    public ProxyToServerClientHandler(String remoteHost, int remotePort, boolean ssl) {
-        this.remoteHost = remoteHost;
-        this.remotePort = remotePort;
-        this.remoteSsl = ssl;
+    public ProxyToServerClientHandler(RemoteHostRule remoteHostRule) {
+        this.remoteHostRule = remoteHostRule;
     }
 
     @Override
@@ -77,11 +71,9 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
     private void initConnectionToServer(ChannelHandlerContext ctx, HttpRequest request) {
 
-        final int rPort = getRemotePort(request);
-        final String rHost = getRemoteHost(request);
-        final boolean rSsl = getRemoteSsl(request);
+        final Host remoteHostToConnect = remoteHostRule.getHost(request);
 
-        updateHeaderFields(request, rHost, rPort);
+        updateHeaderFields(request, remoteHostToConnect);
 
         Bootstrap bootstrap = new Bootstrap();
         final Channel inboundChannel = ctx.channel();
@@ -92,12 +84,15 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
                     @Override
                     protected void initChannel(NioSocketChannel ch) throws Exception {
                         ChannelPipeline pipeline = ch.pipeline();
-                        getSslContext(rSsl).ifPresent(s -> pipeline.addLast("remoteSsl", s.newHandler(ch.alloc(), rHost, rPort)));
-                        pipeline.addLast("encoder", new HttpRequestEncoder());
+                        getSslContext(remoteHostToConnect.isSsl()).ifPresent(
+                                s -> pipeline.addLast("remoteSsl",
+                                        s.newHandler(ch.alloc(), remoteHostToConnect.getHost(), remoteHostToConnect.getPort())));
+                        pipeline.addLast("serverCodec", new HttpClientCodec());
                         pipeline.addLast(new ProxyToServerBackendHandler(inboundChannel));
                     }
                 });
-        ChannelFuture channelFuture = bootstrap.connect(rHost, rPort);
+        ChannelFuture channelFuture = bootstrap.connect(remoteHostToConnect.getHost(),
+                remoteHostToConnect.getPort());
         CompletableFuture<Channel> cfuture = completableFuture;
         channelFuture.addListener((ChannelFutureListener) future -> {
             if (future.isSuccess()) {
@@ -106,30 +101,6 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
                 inboundChannel.close();
             }
         });
-    }
-
-    private boolean getRemoteSsl(HttpRequest request) {
-        String ssl = request.headers().get(X_OTHER_REMOTE_REMOTE_SSL);
-        if (ssl == null) {
-            return this.remoteSsl;
-        }
-        return ssl.equalsIgnoreCase("true");
-    }
-
-    private String getRemoteHost(HttpRequest request) {
-        String host = request.headers().get(X_OTHER_REMOTE_HOST);
-        if (host == null) {
-            return this.remoteHost;
-        }
-        return host;
-    }
-
-    private int getRemotePort(HttpRequest request) {
-        Integer port = request.headers().getInt(X_OTHER_REMOTE_PORT);
-        if (port == null) {
-            return this.remotePort;
-        }
-        return port;
     }
 
     private boolean isTrafficRequest(Object msg) {
@@ -151,8 +122,8 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
             ctx.write(response).addListener(ChannelFutureListener.CLOSE);
     }
 
-    private void updateHeaderFields(HttpRequest msg, String host, int port) {
-        msg.headers().set("Host", host + ":" + port);
+    private void updateHeaderFields(HttpRequest msg, Host host) {
+        msg.headers().set("Host", host.getHost() + ":" + host.getPort());
     }
 
     @Override
