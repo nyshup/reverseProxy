@@ -1,5 +1,9 @@
 package com.nyshup;
 
+import com.nyshup.handlers.HttpRequestHandler;
+import com.nyshup.handlers.TrafficHandler;
+import com.nyshup.model.Host;
+import com.nyshup.rules.RemoteHostRule;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
@@ -12,6 +16,8 @@ import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.handler.traffic.TrafficCounter;
 
 import javax.net.ssl.SSLException;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -22,20 +28,14 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
-    public static final String X_OTHER_REMOTE_REMOTE_SSL = "X-other-remote-ssl";
-    public static final String X_OTHER_REMOTE_HOST = "X-other-remote-host";
-    public static final String X_OTHER_REMOTE_PORT = "X-other-remote-port";
-
-    final private String remoteHost;
-    final private int remotePort;
-    private final boolean remoteSsl;
+    final private RemoteHostRule remoteHostRule;
     private CompletableFuture<Channel> completableFuture = new CompletableFuture<>();
+    private List<HttpRequestHandler> httpHandlers = new LinkedList<>();
 
 
-    public ProxyToServerClientHandler(String remoteHost, int remotePort, boolean ssl) {
-        this.remoteHost = remoteHost;
-        this.remotePort = remotePort;
-        this.remoteSsl = ssl;
+    public ProxyToServerClientHandler(RemoteHostRule remoteHostRule) {
+        this.remoteHostRule = remoteHostRule;
+        httpHandlers.add(new TrafficHandler());
     }
 
     @Override
@@ -50,14 +50,22 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (isTrafficRequest(msg)) {
-            processTrafficResponse(ctx);
-            return;
-        }
         if (msg instanceof HttpRequest) {
-            initConnectionToServer(ctx, (HttpRequest) msg);
+            processHttpRequestPart(ctx, (HttpRequest) msg);
+        } else {
+            processChannelRead(ctx, msg);
         }
-        processChannelRead(ctx, msg);
+    }
+
+    private void processHttpRequestPart(ChannelHandlerContext ctx, HttpRequest request) {
+        for (HttpRequestHandler handler: httpHandlers) {
+            if (handler.supports(request)) {
+                handler.process(ctx, request);
+                return;
+            }
+        }
+        initConnectionToServer(ctx, request);
+        processChannelRead(ctx, request);
     }
 
     private void processChannelRead(ChannelHandlerContext ctx, Object msg) {
@@ -77,11 +85,9 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
 
     private void initConnectionToServer(ChannelHandlerContext ctx, HttpRequest request) {
 
-        final int rPort = getRemotePort(request);
-        final String rHost = getRemoteHost(request);
-        final boolean rSsl = getRemoteSsl(request);
+        final Host hostToConnect = remoteHostRule.getHost(request);
 
-        updateHeaderFields(request, rHost, rPort);
+        updateHeaderFields(request, hostToConnect);
 
         Bootstrap bootstrap = new Bootstrap();
         final Channel inboundChannel = ctx.channel();
@@ -92,12 +98,15 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
                     @Override
                     protected void initChannel(NioSocketChannel ch) throws Exception {
                         ChannelPipeline pipeline = ch.pipeline();
-                        getSslContext(rSsl).ifPresent(s -> pipeline.addLast("remoteSsl", s.newHandler(ch.alloc(), rHost, rPort)));
+                        getSslContext(hostToConnect.isSsl()).ifPresent(
+                                s -> pipeline.addLast("remoteSsl",
+                                        s.newHandler(ch.alloc(), hostToConnect.getHost(), hostToConnect.getPort())));
                         pipeline.addLast("encoder", new HttpRequestEncoder());
                         pipeline.addLast(new ProxyToServerBackendHandler(inboundChannel));
                     }
                 });
-        ChannelFuture channelFuture = bootstrap.connect(rHost, rPort);
+        ChannelFuture channelFuture = bootstrap.connect(hostToConnect.getHost(),
+                hostToConnect.getPort());
         CompletableFuture<Channel> cfuture = completableFuture;
         channelFuture.addListener((ChannelFutureListener) future -> {
             if (future.isSuccess()) {
@@ -108,51 +117,8 @@ public class ProxyToServerClientHandler extends ChannelInboundHandlerAdapter {
         });
     }
 
-    private boolean getRemoteSsl(HttpRequest request) {
-        String ssl = request.headers().get(X_OTHER_REMOTE_REMOTE_SSL);
-        if (ssl == null) {
-            return this.remoteSsl;
-        }
-        return ssl.equalsIgnoreCase("true");
-    }
-
-    private String getRemoteHost(HttpRequest request) {
-        String host = request.headers().get(X_OTHER_REMOTE_HOST);
-        if (host == null) {
-            return this.remoteHost;
-        }
-        return host;
-    }
-
-    private int getRemotePort(HttpRequest request) {
-        Integer port = request.headers().getInt(X_OTHER_REMOTE_PORT);
-        if (port == null) {
-            return this.remotePort;
-        }
-        return port;
-    }
-
-    private boolean isTrafficRequest(Object msg) {
-        if (msg instanceof HttpRequest &&
-            ((HttpRequest) msg).uri().endsWith("traffic")) return true;
-        return false;
-    }
-
-    private void processTrafficResponse(ChannelHandlerContext ctx) {
-            ctx.pipeline().addBefore("decoder", "encoder", new HttpResponseEncoder());
-            TrafficCounter counter = ((GlobalTrafficShapingHandler) ctx.pipeline().get("traffic")).trafficCounter();
-            StringBuilder builder = new StringBuilder("Statistics : ");
-            builder.append("Read bytes[").append(counter.cumulativeReadBytes() >> 10).append("Kb]  ")
-                    .append("Write bytes:").append("[").append(counter.cumulativeWrittenBytes() >> 10).append("Kb]");
-
-            FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, OK, Unpooled.wrappedBuffer(builder.toString().getBytes()));
-            response.headers().set(CONTENT_TYPE, "text/plain");
-            response.headers().setInt(CONTENT_LENGTH, response.content().readableBytes());
-            ctx.write(response).addListener(ChannelFutureListener.CLOSE);
-    }
-
-    private void updateHeaderFields(HttpRequest msg, String host, int port) {
-        msg.headers().set("Host", host + ":" + port);
+    private void updateHeaderFields(HttpRequest msg, Host host) {
+        msg.headers().set("Host", host.getHost() + ":" + host.getPort());
     }
 
     @Override

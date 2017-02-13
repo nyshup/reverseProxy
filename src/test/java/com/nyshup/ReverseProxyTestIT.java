@@ -22,8 +22,8 @@ import org.apache.http.message.BasicHeader;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.util.EntityUtils;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
+import org.junit.rules.Timeout;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
@@ -33,27 +33,45 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.http.entity.ContentType.APPLICATION_FORM_URLENCODED;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.startsWith;
 import static org.junit.Assert.*;
 
-public class ReverseProxyTest {
+public class ReverseProxyTestIT {
 
     public static final String TEST_JSON = "{'foo': 'bar'}";
     private CloseableHttpClient client;
     private String url = "https://127.0.0.1:8080/post";
     private String ethalonUrl = "https://httpbin.org:443/post";
+    private static ReverseProxy proxy;
+
+    @BeforeClass
+    public static void before() throws Exception {
+        proxy = new ReverseProxyBuilder()
+                .port(8888)
+                .sslPort(8080)
+                .remoteHost("httpbin.org", 80, false)
+                .ipFilter(new HashSet<>()).create();
+        ProxyTestUtils.startServer(proxy);
+    }
+
+    @AfterClass
+    public static void after() throws Exception {
+        ProxyTestUtils.stopServer(proxy);
+    }
 
     @Before
     public void setUp() throws Exception {
         client = createHttpClientAcceptsUntrustedCerts();
     }
+
+    @Rule
+    public Timeout globalTimeout= new Timeout(10, TimeUnit.SECONDS);
 
     @Test
     public void testPost_JSON() throws Exception {

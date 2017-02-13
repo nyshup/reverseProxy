@@ -2,6 +2,7 @@ package com.nyshup;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
+import com.nyshup.model.Host;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -12,10 +13,10 @@ public class Main {
     public static final String TRUE = "true";
 
     @Parameter(names = {"--port"}, description = "Port which use proxy server to run", required = true)
-    private Integer port;
+    private Integer port = 80;
 
-    @Parameter(names = {"--ssl"}, description = "Use ssl to connect proxy server")
-    private String localSsl = "true";
+    @Parameter(names = {"--sslPort"}, description = "Use ssl port to connect proxy server")
+    private Integer sslPort = 443;
 
     @Parameter(names = {"--rhost"}, description = "Host of backed server", required = true)
     private String remoteHost;
@@ -43,11 +44,10 @@ public class Main {
             }
         }
         if (main.help) commander.usage();
-        new ReverseProxy(main.port,
-                TRUE.equalsIgnoreCase(main.localSsl),
-                main.remoteHost,
-                main.remotePort,
-                TRUE.equalsIgnoreCase(main.remoteSsl),
-                ips).start();
+        new ReverseProxyBuilder()
+                .port(main.port)
+                .sslPort(main.sslPort)
+                .remoteHost(new Host(main.remoteHost, main.remotePort, TRUE.equalsIgnoreCase(main.remoteSsl)))
+                .ipFilter(ips).create().start();
     }
 }
