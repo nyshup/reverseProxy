@@ -26,27 +26,22 @@ public class ReverseProxyMeldiumTestIT {
                 .create();
         ProxyTestUtils.startServer(proxy);
 
-        given().config(ProxyTestUtils.getRestAssuredWithSslConfig())
-                .filter(new RequestLoggingFilter())
-                .filter(new ResponseLoggingFilter())
-                .contentType(ContentType.JSON)
-                .baseUri(HTTP_URL)
-                .when()
-                .get("/")
-                .then()
-                .statusCode(200);
-
-        given().config(ProxyTestUtils.getRestAssuredWithSslConfig())
-                .filter(new RequestLoggingFilter())
-                .filter(new ResponseLoggingFilter())
-                .contentType(ContentType.JSON)
-                .baseUri(HTTPS_URL)
-                .when()
-                .get("/")
-                .then()
-                .statusCode(200);
+        checkGetToUrl(HTTP_URL);
+        checkGetToUrl(HTTPS_URL);
 
         ProxyTestUtils.stopServer(proxy);
+    }
+
+    private void checkGetToUrl(String url) {
+        given().config(ProxyTestUtils.getRestAssuredWithSslConfig())
+                .filter(new RequestLoggingFilter())
+                .filter(new ResponseLoggingFilter())
+                .contentType(ContentType.JSON)
+                .baseUri(url)
+                .when()
+                .get("/")
+                .then()
+                .statusCode(200);
     }
 
 }
