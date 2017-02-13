@@ -4,7 +4,11 @@ import com.jayway.restassured.filter.log.RequestLoggingFilter;
 import com.jayway.restassured.filter.log.ResponseLoggingFilter;
 import com.jayway.restassured.http.ContentType;
 import com.nyshup.model.Host;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
+
+import java.util.concurrent.TimeUnit;
 
 import static com.jayway.restassured.RestAssured.given;
 
@@ -16,8 +20,10 @@ public class ReverseProxyMeldiumTestIT {
     private static final String HTTP_URL = "http://127.0.0.1:" + PROXY_PORT;
     private static final Host REMOTE_HOST = new Host("www.meldium.com", 443, true);
 
+    @Rule
+    public Timeout globalTimeout= new Timeout(10, TimeUnit.SECONDS);
 
-    @Test(timeout = 10000)
+    @Test
     public void testMeldium() throws Exception {
         ReverseProxy proxy = new ReverseProxyBuilder()
                 .port(PROXY_PORT)

@@ -22,10 +22,8 @@ import org.apache.http.message.BasicHeader;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.util.EntityUtils;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.*;
+import org.junit.rules.Timeout;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
@@ -36,6 +34,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.http.entity.ContentType.APPLICATION_FORM_URLENCODED;
 import static org.awaitility.Awaitility.await;
@@ -70,6 +69,9 @@ public class ReverseProxyTestIT {
     public void setUp() throws Exception {
         client = createHttpClientAcceptsUntrustedCerts();
     }
+
+    @Rule
+    public Timeout globalTimeout= new Timeout(10, TimeUnit.SECONDS);
 
     @Test
     public void testPost_JSON() throws Exception {

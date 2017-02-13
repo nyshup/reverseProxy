@@ -3,6 +3,9 @@ package com.nyshup;
 import com.jayway.restassured.http.ContentType;
 import com.nyshup.model.Host;
 import org.junit.*;
+import org.junit.rules.Timeout;
+
+import java.util.concurrent.TimeUnit;
 
 import static com.jayway.restassured.RestAssured.given;
 import static org.hamcrest.core.IsEqual.equalTo;
@@ -20,7 +23,10 @@ public class ReverseProxyHttpbinPostTestIT {
     private static final Host REMOTE_WITH_SSL = new Host(REMOTE_HOST, 443, true);
     private static final Host REMOTE_WITHOUT_SSL = new Host(REMOTE_HOST, 80, false);
 
-    @Test(timeout = 10000)
+    @Rule
+    public Timeout globalTimeout= new Timeout(10, TimeUnit.SECONDS);
+
+    @Test
     public void testPostJsonWithSsl() throws Exception {
         postJsonThoughProxy(new ReverseProxyBuilder()
                 .port(PROXY_PORT)
@@ -29,7 +35,7 @@ public class ReverseProxyHttpbinPostTestIT {
                 .create());
     }
 
-    @Test(timeout = 10000)
+    @Test
     public void testPostJsonWithoutSsl() throws Exception {
         postJsonThoughProxy(new ReverseProxyBuilder()
                 .port(PROXY_PORT)
