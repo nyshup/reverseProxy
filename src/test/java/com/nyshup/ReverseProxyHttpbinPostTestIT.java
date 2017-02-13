@@ -7,7 +7,10 @@ import org.junit.*;
 import static com.jayway.restassured.RestAssured.given;
 import static org.hamcrest.core.IsEqual.equalTo;
 
-public class ReverseProxy2Test {
+/**
+ * Post json to http(s)://httpbin.org/post through http(s) proxy's port.
+ */
+public class ReverseProxyHttpbinPostTestIT {
 
     public static final String TEST_JSON = "{'foo': 'bar'}";
     private static final String REMOTE_HOST = "httpbin.org";

@@ -33,7 +33,7 @@
   * java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar --port 8080 --rhost www.meldium.com --rport 443
 
 ####Tests:
-* com.nyshup.ReverseProxyTest: Integration test. Automatically run/stop server.
+* com.nyshup.ReverseProxyTestIT: Integration test. Automatically run/stop server.
   * testClientPost_JSON - send json and check that content are sent correct. Verify with content received from httpbin.org.
   * testPostedHeaders - verify that headers were sent correctly
   * testPost_FormData - verify that form data were sent correctly

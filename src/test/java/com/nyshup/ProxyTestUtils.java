@@ -33,4 +33,5 @@ public class ProxyTestUtils {
         return RestAssured.config().sslConfig(
                 new SSLConfig().relaxedHTTPSValidation());
     }
+
 }

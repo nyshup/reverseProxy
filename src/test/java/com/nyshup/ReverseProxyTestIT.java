@@ -43,7 +43,7 @@ import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.startsWith;
 import static org.junit.Assert.*;
 
-public class ReverseProxyTest {
+public class ReverseProxyTestIT {
 
     public static final String TEST_JSON = "{'foo': 'bar'}";
     private CloseableHttpClient client;

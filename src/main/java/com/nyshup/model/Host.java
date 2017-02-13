@@ -24,4 +24,23 @@ public class Host {
         return ssl;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Host host1 = (Host) o;
+
+        if (port != host1.port) return false;
+        if (ssl != host1.ssl) return false;
+        return host.equals(host1.host);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = host.hashCode();
+        result = 31 * result + port;
+        result = 31 * result + (ssl ? 1 : 0);
+        return result;
+    }
 }

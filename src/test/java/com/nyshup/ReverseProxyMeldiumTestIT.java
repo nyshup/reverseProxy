@@ -8,7 +8,7 @@ import org.junit.Test;
 
 import static com.jayway.restassured.RestAssured.given;
 
-public class ReverseProxyMeldiumTest {
+public class ReverseProxyMeldiumTestIT {
 
     private static final int PROXY_PORT = 8088;
     private static final int PROXY_PORT_SSL = 8080;
@@ -25,6 +25,7 @@ public class ReverseProxyMeldiumTest {
                 .remoteHost(REMOTE_HOST)
                 .create();
         ProxyTestUtils.startServer(proxy);
+
         given().config(ProxyTestUtils.getRestAssuredWithSslConfig())
                 .filter(new RequestLoggingFilter())
                 .filter(new ResponseLoggingFilter())

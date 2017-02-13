@@ -1,6 +1,7 @@
 package com.nyshup;
 
 import com.nyshup.model.Host;
+import com.nyshup.rules.IpListRule;
 import com.nyshup.rules.RemoteHostHeadersRule;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -8,8 +9,6 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.*;
-import io.netty.handler.ipfilter.IpFilterRule;
-import io.netty.handler.ipfilter.IpFilterRuleType;
 import io.netty.handler.ipfilter.RuleBasedIpFilter;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
@@ -19,7 +18,6 @@ import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 
 import javax.net.ssl.SSLException;
-import java.net.InetSocketAddress;
 import java.security.cert.CertificateException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -66,7 +64,7 @@ public class ReverseProxy {
                         if (portsToSsl.get(port)) pipeline.addLast(sslContext.newHandler(ch.alloc()));
                         ipFilter.ifPresent(ip -> pipeline.addLast("ipfilter", ip));
                         pipeline.addLast("traffic", globalTrafficShapingHandler);
-                        pipeline.addLast("decoder", new HttpServerCodec());
+                        pipeline.addLast("decoder", new HttpRequestDecoder());
                         pipeline.addLast("proxyToServer", new ProxyToServerClientHandler(new RemoteHostHeadersRule(remoteHost)));
                     }
 
@@ -99,17 +97,7 @@ public class ReverseProxy {
 
     private Optional<RuleBasedIpFilter> getRuleBasedIpFilter() {
         if (!ipFilters.isEmpty()) {
-            return Optional.of(new RuleBasedIpFilter(new IpFilterRule() {
-                @Override
-                public boolean matches(InetSocketAddress remoteAddress) {
-                    return !ipFilters.contains(remoteAddress.getAddress().getHostAddress());
-                }
-
-                @Override
-                public IpFilterRuleType ruleType() {
-                    return IpFilterRuleType.REJECT;
-                }
-            }));
+            return Optional.of(new RuleBasedIpFilter(new IpListRule(ipFilters)));
         }
         return Optional.empty();
     }
