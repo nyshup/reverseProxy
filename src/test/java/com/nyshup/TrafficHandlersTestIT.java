@@ -8,7 +8,7 @@ import static com.jayway.restassured.RestAssured.given;
 import static org.hamcrest.CoreMatchers.containsString;
 
 
-public class HttpHandlersTestIT {
+public class TrafficHandlersTestIT {
 
     private static final int PROXY_PORT = 8088;
     private static final Host HOST = new Host("httpbin.org", 80, false);

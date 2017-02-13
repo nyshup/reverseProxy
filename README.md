@@ -25,20 +25,17 @@
 
 * For help:
   * java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar -h
-* For proxy on port "8080" with server "https://httpbin.org/" (https://localhost:8080)
-  * java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar --port 8080 --rhost httpbin.org --rport 443
-* For proxy on port "8080" with server "http://httpbin.org/"  (http://localhost:8080) (without ssl)) 
-  * java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar --port 8080 --ssl false --rhost httpbin.org --rport 80 --rssl false (http connections)
-* For proxy on port "8080" with server "https://www.meldium.com" (https://localhost:8080) (use ssl)
-  * java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar --port 8080 --rhost www.meldium.com --rport 443
 
 ####Tests:
+* ReverseProxyHttpbinPostTestIT - checks post json to http(s)://httpbin.org throuth http and https proxy port. 
 * com.nyshup.ReverseProxyTestIT: Integration test. Automatically run/stop server.
   * testClientPost_JSON - send json and check that content are sent correct. Verify with content received from httpbin.org.
   * testPostedHeaders - verify that headers were sent correctly
   * testPost_FormData - verify that form data were sent correctly
   * testPost_MultipartData - verify that multipart request was sent correctly
-
+* TrafficHandlerTestIT - integration test for test TrafficHandler. Checks that information is available by url.
+* ProxyDynamicTestIT - checks that backed server could be selected based on request parameters. 
+* ReverseProxyMeldiumTestIT - check connectivity to https://www.meldium.com:443
 
 ####Production:
 For reliability some action could be implemented:
@@ -67,8 +64,8 @@ You could see traffic values by link "{url to proxy server}/traffic"
 ####To secure proxy RuleBasedIpFilter is used.
 * To enable ip filtering use parameter --ipFilter with comma separated ip addresses.
 In this case access will be available only from machines with ip address from setup parameter.
-Example: java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar --port 8080 --rhost httpbin.org --rport 443 --ipFilter 127.0.0.1
+Example: java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar --port 8080 --sslPort 8080 --rhost httpbin.org --rport 443 --ipFilter 127.0.0.1
 
     
 ####Bonus:
-* java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar --port 8080 --sslPort --rhost www.meldium.com --rport 443
+* java -jar ./target/reverse-proxy-1.0-SNAPSHOT.jar --port 8088 --sslPort 8080 --rhost www.meldium.com --rport 443
