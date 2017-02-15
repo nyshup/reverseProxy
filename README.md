@@ -1,4 +1,4 @@
-###VG Trial Task - Netty Based Reverse Proxy
+###Netty Based Reverse Proxy
 
 * Create a reverse proxy that routes to https://httpbin.org/ (http://httpbin.org/)
 * Create a test that hits the proxy and POSTS some JSON content to the url /post (e.g. POST https://localhost:8080/post { “foo”: “bar” } which then proxies to https://httpbin.org/post {“foo”: “bar”}
@@ -16,7 +16,7 @@
 
 * Make the proxy work with http://www.meldium.com (http://www.meldium.com/) as the backend
 
-###VG Trial Task (Solution)
+###Solution
 
 ####Build:
 
